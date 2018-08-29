@@ -1,0 +1,722 @@
+#!/usr/local/bin/vcsi
+;;
+;; VCSI Schemebot - an scheme based IRC bot
+;;
+
+;;
+;; Load the modules - database access, irc access, quotes and definitions
+;;
+(dynamic-load "gdbm.so")
+(dynamic-load "irc.so")
+(dynamic-load "quote.so")
+(dynamic-load "definition.so")
+(dynamic-load "http.so")
+
+(display "Connecting...\n")
+
+;;
+;; Setup connection variables
+;;
+;; (define irc-server "127.0.0.1")
+(define irc-server "irc.snoogins.com")
+;; (define irc-server "irc1.imbetterthanyou.com")
+;;(define irc-server "irc.sassmaster.com")
+;;(define irc-server "snoogins.hyperingenuity.com")
+(define irc-port 6667)
+(define irc-mynick "schemebot")
+(define irc-name "VCSI Scheme Interpreter")
+(define irc-primary-channel "#sass")
+(define irc-channels (list irc-primary-channel "#vcsi"))
+
+;; the password for secure'n...
+(define irc-secure-passwd "ubersass")
+
+(define version "Schemebot v0.99")
+
+(define ignore-list
+  (list "knowbot" "knewbot" "linguo" "jackblack" "ragecage"
+	"sasquatch" "userserv" "chanserv" "ludobot"))
+
+;; People in the primary channel
+(define irc-primary-channel-names '())
+
+(define (should-ignore? x list)
+  (if (null? list)
+      #f
+      (if (string-ci=? x (car list))
+	  #t
+	  (should-ignore? x (cdr list))))
+	(if (> (string-length x) 2)
+  (if (string-ci=? (substring x (- (string-length x) 3) (string-length x)) "bot")
+      #t))
+)
+
+;;
+;; Helper Functions
+;;
+(define (list-contains l x)
+  (if (null? l)
+      #f
+      (if (string-ci=? x (car l))
+	  #t
+	  (list-contains (cdr l) x))))
+
+(define (list-add l x)
+  (if (list-contains l x)
+      l
+      (cons x l)))
+
+(define update-list '())
+
+(define (update-list-add x)
+  (set! update-list (list-add update-list x)))
+
+;;
+;; Create the irc object
+;;
+(define irc-conn (make-irc irc-server irc-port irc-mynick irc-name))
+
+;;
+;; Create simple handlers
+;;
+(define (irc-notice-handler channel target source hostmask text)
+  (display (format "~a ~a~%" hostmask text)))
+
+(define (irc-public-handler channel target source hostmask text)
+  (display (format "<~a[~a]> ~a~%" source channel text))
+
+  (define (respond x)
+    (if (> (string-length x) 0)
+	(irc-privmsg irc-conn channel x)))
+
+  (cond
+;;   ((and (> (string-length text) 1)
+;;	 (not (should-ignore? source ignore-list))
+;;	 (or (char=? #\( (string-ref text 0))
+;;	     (char=? #\' (string-ref text 0))
+;;	     (char=? #\` (string-ref text 0))))
+;;    (respond (string-eval text)))
+
+   ;; FIGHT CODE
+   ;; fights
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 7) "!fightp")
+	 (not (should-ignore? source ignore-list)))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 7 (string-length text))
+			 channel 'private)))
+
+   ((and (>= (string-length text) 6)
+	 (string-ci=? (substring text 0 6) "!fight")
+	 (not (should-ignore? source ignore-list)))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 6 (string-length text))
+			 channel 'private)))
+
+   ;; falias
+   ((string-ci=? text "!falias")
+    (respond (string-eval (format "(!scheme-fighter-alias ~a)" source))))
+
+   ((and (>= (string-length text) 8)
+	 (string-ci=? (substring text 0 7) "!falias"))
+    (respond (string-eval (format "(!scheme-fighter-alias ~a ~a)"
+				  source
+				  (substring text 8 (string-length text))))))
+
+   ;; fstats
+   ((string-ci=? text "!fallstat")
+    (respond (scheme-fighter-stats-all irc-primary-channel-names)))
+
+   ((and (>= (string-length text) 10)
+	 (string-ci=? (substring text 0 9) "!fallstat"))
+    (respond (scheme-fighter-stats-all
+	      (string-split "," (substring text 10 (string-length text))))))
+
+
+   ((string-ci=? text "!fstat")
+    (respond (string-eval (format "(!scheme-fighter-stats \"~a\")" source))))
+
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 6) "!fstat"))
+    (respond (string-eval (format "(!scheme-fighter-stats \"~a\")"
+				  (substring text 7 (string-length text))))))
+
+	;; vs stats
+
+  ((=~ text "/!fvsstat( +([!-~]+))?( +([!-~]+))? *$/")
+  	(let ((checkstr (=~ text "/!fvsstat( +([!-~]+))?( +([!-~]+))? *$/")))
+		(cond
+    		((= (length checkstr) 5)
+	     		(respond (string-eval (format
+	      			"(!scheme-fighter-vsstats \"~a\" \"~a\")"
+	      			(caddr checkstr)
+	      			(cadr (cdddr checkstr))))))
+	      	((= (length checkstr) 3)
+    	  		(respond (string-eval (format
+		     		"(!scheme-fighter-vsstats \"~a\" \"~a\")"
+	      			source
+	      			(caddr checkstr)))))
+      		((= (length checkstr) 1)
+	      			(respond (string-eval (format
+      					"(!scheme-fighter-vsstats-user \"~a\")"
+      					source))))
+      		(else
+      			(respond "Called !fvstat with wrong args")))))
+
+   ;; death-cry
+   ((and (>= (string-length text) 11)
+	 (string-ci=? (substring text 0 10) "!death-cry"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-death-cry \"~a\" \"~a\")"
+			   source
+			   (substring text 11 (string-length text))))))
+
+   ;; victory-cry
+   ((and (>= (string-length text) 13)
+	 (string-ci=? (substring text 0 12) "!victory-cry"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-victory-cry \"~a\" \"~a\")"
+			   source
+			   (substring text 13 (string-length text))))))
+
+   ;; super-move
+   ((and (>= (string-length text) 12)
+	 (string-ci=? (substring text 0 11) "!super-move"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-super-move \"~a\" \"~a\")"
+			   source
+			   (substring text 12 (string-length text))))))
+
+   ;; finish-him
+   ((and (>= (string-length text) 12)
+	 (string-ci=? (substring text 0 11) "!finish-him"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-finish-him \"~a\" \"~a\")"
+			   source
+			   (substring text 12 (string-length text))))))
+
+   ;; winner
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 7) "!winner"))
+   (respond (format "Last winner: ~a" (gdbm-fetch scheme-fighter-db "scheme-fighter-last-winner"))))
+
+   ;; loser
+   ((and (>= (string-length text) 6)
+	 (string-ci=? (substring text 0 6) "!loser"))
+   (respond (format "Last loser: ~a" (gdbm-fetch scheme-fighter-db "scheme-fighter-last-loser"))))
+
+   ;; list-super-moves
+   ((and (>= (string-length text) 17)
+	 (string-ci=? (substring text 0 17) "!list-super-moves"))
+   (super-move-dump))
+
+   ;; list-death-crys
+   ((and (>= (string-length text) 16)
+	 (string-ci=? (substring text 0 16) "!list-death-crys"))
+   (death-cry-dump))
+
+   ;; list-victory-crys
+   ((and (>= (string-length text) 18)
+	 (string-ci=? (substring text 0 18) "!list-victory-crys"))
+   (victory-cry-dump))
+
+   ;; END FIGHT CODE
+
+   ;; niner kick
+   ((regexp-match? "[^A-Za-z0-9]*[Nn][^A-Za-z0-9]*[Ii][^A-Za-z0-9]*[Nn][^A-Za-z0-9]*[Ee][^A-Za-z0-9]*[Rr][^A-Za-z0-9]*" text)
+    (begin
+      (irc-unsecure irc-conn irc-secure-passwd)
+      (irc-kick irc-conn "#sass" source "Niner kick!")
+      (irc-secure irc-conn irc-secure-passwd)))
+
+   ;; Magic eightball
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 6) "!8ball"))
+    (respond (format "~a: ~a" source (string-eval
+				      (format "(!8ball \"~a\")"
+					      (substring text 7
+							 (string-length text)
+							 ))))))
+
+   ;; Happyhour check
+   ((and (>= (string-length text) 10)
+	 (string-ci=? (substring text 0 10) "!happyhour"))
+    (respond (format "~a: ~a" source (!happyhour))))
+
+   ((and (>= (string-length text) 3)
+	 (string-ci=? (substring text 0 3) "!hh"))
+    (respond (format "~a: ~a" source (!happyhour))))
+
+   ;; Gamerscore
+
+   ((and (>= (string-length text) 12)
+	 (string-ci=? (substring text 0 11) "!gamerscore"))
+    (respond (string-eval (format "(!gamerscore \"~a\")"
+				  (substring text 12 (string-length text))))))
+
+   ;; Scratch Tickets
+   ((string-ci=? text "!scratch_ticket")
+    (respond (string-eval (format "(!scratch_ticket \"~a\")" source))))
+
+   ((string-ci=? text "!scratch")
+    (respond (string-eval (format "(!scratch_ticket \"~a\")" source))))
+
+   ((string-ci=? text "!scratch-ticket")
+    (respond (string-eval (format "(!scratch_ticket \"~a\")" source))))
+
+   ((string-ci=? text "!ticket")
+    (respond (string-eval (format "(!scratch_ticket \"~a\")" source))))
+
+
+   ;; quotes
+   ((and (regexp-matches "^!([1234567890]+)" text)
+	 (= (length (regexp-matches "^!([1234567890]+)" text)) 2)
+	 (not (should-ignore? source ignore-list)))
+    (let* ((l (regexp-matches "^!([1234567890]+)" text))
+	   (num (string->number (list-ref l 1))))
+      (map respond (get-quote num))))
+
+   )
+  )
+
+
+(define (irc-msg-handler channel target source hostmask text)
+  (display (format ">~a(~a)< ~a~%" source hostmask text))
+
+  (define (respond x)
+    (if (> (string-length x) 0)
+	(irc-privmsg irc-conn source x)))
+
+  (cond
+   ;; FIGHT CODE
+   ;; fights
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 7) "!fightp")
+	 (not (should-ignore? source ignore-list)))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 7 (string-length text))
+			 irc-primary-channel 'private)))
+
+   ((and (>= (string-length text) 6)
+	 (string-ci=? (substring text 0 6) "!fight")
+	 (not (should-ignore? source ignore-list)))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 6 (string-length text))
+			 irc-primary-channel 'private)))
+
+   ;; falias
+   ((string-ci=? text "!falias")
+    (respond (string-eval (format "(!scheme-fighter-alias ~a)" source))))
+
+   ((and (>= (string-length text) 8)
+	 (string-ci=? (substring text 0 7) "!falias"))
+    (respond (string-eval (format "(!scheme-fighter-alias ~a ~a)"
+				  source
+				  (substring text 8 (string-length text))))))
+
+   ;; fstats
+   ((string-ci=? text "!fallstat")
+    (respond (scheme-fighter-stats-all irc-primary-channel-names)))
+
+   ((and (>= (string-length text) 10)
+	 (string-ci=? (substring text 0 9) "!fallstat"))
+    (respond (scheme-fighter-stats-all
+	      (string-split "," (substring text 10 (string-length text))))))
+
+   ((string-ci=? text "!fstat")
+    (respond (string-eval (format "(!scheme-fighter-stats \"~a\")" source))))
+
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 6) "!fstat"))
+    (respond (string-eval (format "(!scheme-fighter-stats \"~a\")"
+				  (substring text 7 (string-length text))))))
+
+   ;; death-cry
+   ((and (>= (string-length text) 11)
+	 (string-ci=? (substring text 0 10) "!death-cry"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-death-cry \"~a\" \"~a\")"
+			   source
+			   (substring text 11 (string-length text))))))
+
+   ;; victory-cry
+   ((and (>= (string-length text) 13)
+	 (string-ci=? (substring text 0 12) "!victory-cry"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-victory-cry \"~a\" \"~a\")"
+			   source
+			   (substring text 13 (string-length text))))))
+
+   ;; super-move
+   ((and (>= (string-length text) 12)
+	 (string-ci=? (substring text 0 11) "!super-move"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-super-move \"~a\" \"~a\")"
+			   source
+			   (substring text 12 (string-length text))))))
+
+   ;; finish-him
+   ((and (>= (string-length text) 12)
+	 (string-ci=? (substring text 0 11) "!finish-him"))
+    (respond (string-eval (format
+			   "(scheme-fighter-set-finish-him \"~a\" \"~a\")"
+			   source
+			   (substring text 12 (string-length text))))))
+
+   ;; winner
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 7) "!winner"))
+   (respond (format "Last winner: ~a" (gdbm-fetch scheme-fighter-db "scheme-fighter-last-winner"))))
+
+   ;; loser
+   ((and (>= (string-length text) 6)
+	 (string-ci=? (substring text 0 6) "!loser"))
+   (respond (format "Last loser: ~a" (gdbm-fetch scheme-fighter-db "scheme-fighter-last-loser"))))
+
+   ;; END FIGHT CODE
+
+   ;; quotes
+   ((and (regexp-matches "^!([1234567890]+)" text)
+	 (= (length (regexp-matches "^!([1234567890]+)" text)) 2))
+    (let* ((l (regexp-matches "^!([1234567890]+)" text))
+	   (num (string->number (list-ref l 1))))
+      (map respond (get-quote num))))
+
+   ;; generic eval
+   ((and (> (string-length text) 1)
+	 (not (should-ignore? source ignore-list)))
+    (irc-privmsg irc-conn source (string-eval text)))
+
+   ))
+
+(define (irc-action-handler channel target source hostmask text)
+  (display (format "* ~a ~a~%" source text)))
+
+(define (irc-ctcp-handler channel target source hostmask text)
+  (display (format "CTCP: ~a ~a~%" source text))
+
+  (cond
+   ;; FIGHT CODE
+   ;; fights initiated from ctcp's
+   ((and (>= (string-length text) 7)
+	 (string-ci=? (substring text 0 7) "!fightp"))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 7 (string-length text))
+			 irc-primary-channel 'private)))
+
+   ((and (>= (string-length text) 6)
+	 (string-ci=? (substring text 0 6) "!fight"))
+    (string-eval (format "(!scheme-fighter ~a ~a \"~a\" '~a)" source
+			 (substring text 6 (string-length text))
+			 irc-primary-channel 'public)))
+
+   ((string-ci=? text "FIGHT_UPDATE_OPTIN")
+    (begin (update-list-add source)
+	   (scheme-fighter-stats-ctcp source)))
+
+   ((and (string-ci=? source "Sasquatch") (=~ text "/FIGHT_ADDEXP /i"))
+    (let* ((m (=~ text "/FIGHT_ADDEXP (.*) (.*)/i"))
+	   (n (cadr m))
+	   (v (string->number (caddr m))))
+      (scheme-fighter-set-exp n (+ v (scheme-fighter-get-exp n)))
+      (scheme-fighter-stats-ctcp n)))
+
+   ((and (string-ci=? source "Sasquatch") (=~ text "/FIGHT_ADDHP /i"))
+    (let* ((m (=~ text "/FIGHT_ADDHP (.*) (.*)/i"))
+	   (n (cadr m))
+	   (v (string->number (caddr m))))
+      (scheme-fighter-set-hp n (+ v (scheme-fighter-get-hp n)))
+      (scheme-fighter-stats-ctcp n)))
+
+   ((and (string-ci=? source "Sasquatch") (=~ text "/FIGHT_ADDLEVEL /i"))
+    (let* ((m (=~ text "/FIGHT_ADDLEVEL (.*) (.*)/i"))
+	   (n (cadr m))
+	   (v (string->number (caddr m))))
+      (scheme-fighter-set-rank n (+ v (scheme-fighter-get-rank n)))
+      (scheme-fighter-stats-ctcp n)))
+
+   ;; END FIGHT CODE
+   ;; generic eval
+   ((> (string-length text) 1)
+    (irc-privmsg irc-conn source (string-eval text)))
+
+   ))
+
+
+(define (irc-kick-handler channel target source hostmask text)
+  (if (eq? target irc-mynick)
+      (begin
+	(irc-unsecure irc-conn irc-secure-passwd)
+	(irc-join irc-conn channel)
+	(irc-me irc-conn channel (format "hates ~a" source))
+	(irc-secure irc-conn irc-secure-passwd))
+      (begin (display (format "[~a] KICKED: ~a ~a~%" channel target text))
+	     (irc-names irc-conn channel))))
+
+(define (irc-topic-handler channel target source hostmask topic)
+  (display (format "[~a] TOPIC: ~a~%" channel topic)))
+
+(define (irc-names-handler channel target source hostmask text)
+  (display (format "[~a] NAMES: ~a~%" channel text))
+  (if (eq? channel irc-primary-channel)
+      (set! irc-primary-channel-names (string-tokenize " @:" text))))
+
+(define (irc-nick-change-handler channel target source hostmask text)
+  (display (format "NICK: ~a ~a~%" source text))
+  (irc-names irc-conn irc-primary-channel))
+
+(define (irc-join-handler channel target source hostmask text)
+  (display (format "[~a] JOINS: ~a~%" channel source))
+  (irc-names irc-conn channel))
+
+(define (irc-part-handler channel target source hostmask text)
+  (display (format "[~a] PARTS: ~a~%" channel source))
+  (irc-names irc-conn channel))
+
+(define (irc-join-handler channel target source hostmask text)
+  (display (format "[~a] JOINS: ~a~%" channel source))
+  (irc-names irc-conn channel))
+
+(define (irc-quit-handler channel target source hostmask text)
+  (display (format "QUITS: ~a ~a~%" source text))
+  (irc-names irc-conn irc-primary-channel))
+
+(define (irc-nick-taken-handler channel target source hostmask text)
+  (irc-nick irc-conn (string-append target "_")))
+
+(define (irc-ping-handler channel target source hostmask text)
+  (irc-ping-reply irc-conn source text))
+
+(define (irc-version-handler channel target source hostmask text)
+  (irc-version-reply irc-conn source version))
+
+;;
+;; Set the handlers
+;;
+;;(irc-handler-set! irc-conn 'notice irc-notice-handler)
+
+(irc-handler-set! irc-conn 'public irc-public-handler)
+
+(irc-handler-set! irc-conn 'msg irc-msg-handler)
+
+(irc-handler-set! irc-conn 'action irc-action-handler)
+
+(irc-handler-set! irc-conn 'ctcp irc-ctcp-handler)
+
+(irc-handler-set! irc-conn 'kick irc-kick-handler)
+
+(irc-handler-set! irc-conn 'topic irc-topic-handler)
+
+(irc-handler-set! irc-conn 'names irc-names-handler)
+
+(irc-handler-set! irc-conn 'nick-change irc-nick-change-handler)
+
+(irc-handler-set! irc-conn 'join irc-join-handler)
+
+(irc-handler-set! irc-conn 'part irc-part-handler)
+
+(irc-handler-set! irc-conn 'quit irc-quit-handler)
+
+(irc-handler-set! irc-conn 'nick-taken irc-nick-taken-handler)
+
+(irc-handler-set! irc-conn 'ping irc-ping-handler)
+
+(irc-handler-set! irc-conn 'version irc-version-handler)
+
+;;
+;; Define shortcut functions for #sass simplicity
+;;
+
+(define (notice x y)
+  (irc-notice irc-conn (format "~a" x) (format "~a" y)) "")
+
+(define (say x)
+  (irc-privmsg irc-conn irc-primary-channel (format "~a" x)) "")
+
+(define (msg x y)
+  (irc-privmsg irc-conn (format "~a" x) (format "~a" y)) "")
+
+(define (me x)
+  (irc-me irc-conn irc-primary-channel (format "~a" x)) "")
+
+(define (kick x y)
+  (irc-kick irc-conn irc-primary-channel x y))
+
+(define (ctcp x y)
+  (irc-ctcp irc-conn (format "~a" x) (format "~a" y)) "")
+
+(define (debug x) (say x) x)
+
+;;
+;; Setup the handler
+;;
+(define (irc-handler) (irc-handle-one-event irc-conn) (irc-handler))
+
+;;
+;; Custom definitions
+;;
+
+;; Gamerscore
+(define (!gamerscore x)
+
+  (define nick x)
+
+  (cond
+   ((string-ci=? x "fm") (set! x "strego"))
+   ((string-ci=? x "bisstardo") (set! x "b1sstardo"))
+   ((string-ci=? x "snoogins") (set! x "bennid"))
+   ((string-ci=? x "debo") (set! x "sassydebo"))
+   ((string-ci=? x "lostxanadu") (set! x "L0stXanadu")))
+
+  (define gs (http-simple-get (format "http://gamercard.xbox.com/~a.card" x)))
+
+  (format "~a: ~a" nick
+    (cadr (=~ gs "/<span class=\\\"XbcFRAR\\\">([1234567890]+)<\/span>/"))))
+
+;; Scratch Tickets
+(define (!scratch_ticket x)
+  (cond
+   ((string-ci=? x "bennid") (msg "bennid" "http://www.sassmaster.com/scratch_ticket.cgi?nick=bennid&key=283e40"))
+   ((string-ci=? x "bisstardo") (msg "bisstardo" "http://www.sassmaster.com/scratch_ticket.cgi?nick=bisstardo&key=3b4729"))
+   ((string-ci=? x "chanserv") (msg "chanserv" "http://www.sassmaster.com/scratch_ticket.cgi?nick=chanserv&key=34ad04"))
+   ((string-ci=? x "debo") (msg "debo" "http://www.sassmaster.com/scratch_ticket.cgi?nick=debo&key=1e5604"))
+   ((string-ci=? x "eqnox") (msg "eqnox" "http://www.sassmaster.com/scratch_ticket.cgi?nick=eqnox&key=24e569"))
+   ((string-ci=? x "evan") (msg "evan" "http://www.sassmaster.com/scratch_ticket.cgi?nick=evan&key=1f0744"))
+   ((string-ci=? x "f-troop") (msg "f-troop" "http://www.sassmaster.com/scratch_ticket.cgi?nick=f-troop&key=2caba1"))
+   ((string-ci=? x "fm") (msg "fm" "http://www.sassmaster.com/scratch_ticket.cgi?nick=fm&key=166099"))
+   ((string-ci=? x "knowbot") (msg "knowbot" "http://www.sassmaster.com/scratch_ticket.cgi?nick=knowbot&key=2fe990"))
+   ((string-ci=? x "lostxanadu") (msg "lostxanadu" "http://www.sassmaster.com/scratch_ticket.cgi?nick=lostxanadu&key=42b739"))
+   ((string-ci=? x "rthmchgs") (msg "rthmchgs" "http://www.sassmaster.com/scratch_ticket.cgi?nick=rthmchgs&key=350440"))
+   ((string-ci=? x "sasquatch") (msg "sasquatch" "http://www.sassmaster.com/scratch_ticket.cgi?nick=sasquatch&key=3b65f9"))
+   ((string-ci=? x "schemebot") (msg "schemebot" "http://www.sassmaster.com/scratch_ticket.cgi?nick=schemebot&key=3a4284"))))
+
+;; quotes
+(define (!quote x) (map say (get-quote x)) "")
+
+;; definitions and synonyms
+(define definition-db (gdbm-open "definitions.db"))
+(define synonym-db (gdbm-open "synonyms.db"))
+
+(define (!definition x)
+  (if (gdbm-fetch definition-db x)
+
+      (format "~a: ~a" x (gdbm-fetch definition-db x))
+
+      (let ((l (get-definition x))
+	    (def '()))
+
+	(if (null? l)
+	    (set! def "no definitions found.")
+	    (set! def (string-join " " l)))
+
+	(gdbm-store-replace definition-db x def)
+	(format "~a: ~a" x def))))
+
+(define (!synonym x)
+  (if (gdbm-fetch synonym-db x)
+
+      (format "~a: ~a" x (gdbm-fetch synonym-db x))
+
+      (let ((l (get-synonym x))
+	    (syn '()))
+
+	(if (null? l)
+	    (set! syn "no synonyms found.")
+	    (set! syn (format "~a." (string-join ", " l))))
+
+	(gdbm-store-replace synonym-db x syn)
+	(format "~a: ~a" x syn))))
+
+;; Magic 8 Ball
+(define-syntax !8ball (syntax-rules () ((_ ...)
+					(random
+					 "Outlook Not So Good"
+					 "My Reply Is No"
+					 "Don't Count On It"
+					 "You May Rely On It"
+					 "Ask Again Later"
+					 "Most Likely"
+					 "Cannot Predict Now"
+					 "Yes"
+					 "Yes Definitely"
+					 "Better Not Tell You Now"
+					 "It Is Certain"
+					 "Very Doubtful"
+					 "It Is Decidedly So"
+					 "Concentrate and Ask Again"
+					 "Signs Point to Yes"
+					 "My Sources Say No"
+					 "Without a Doubt"
+					 "Reply Hazy, Try Again"
+					 "As I See It, Yes"))))
+
+(define (replace x y)
+  (say (format "If by ~a you mean ~a, then I agree!" x y)) "")
+
+;; stop (reply ...) errobj's from eggdrop sms mode
+(define-syntax reply (syntax-rules () ((_ ...) "")))
+
+;; define div
+(define (div x y) (/ (- x (remainder x y)) y))
+
+;; define mod
+(define (mod x y) (remainder x y))
+
+;; Amuse Me!
+(define (amuse-me) (say (random
+			 (format "!rps ~a 250" (random 'r 'p 's))
+			 (format "!rps2 ~a 250" (random 'r 'p 's 'l 'v))
+			 (format "!cf ~a 250" (random 'h 't)))))
+
+;; Fighting code
+(load "fight.scm")
+
+;;
+;; Connect
+;;
+(irc-connect irc-conn)
+
+;; Get +F
+(irc-raw irc-conn "oper schemebot ubersass")
+
+
+;; Identify
+(irc-privmsg irc-conn "userserv" "login schemebot ubersass")
+
+;; Join channels
+(map (lambda (x)
+       (display (format "Joining channel: ~a~%" x))
+       (irc-join irc-conn x))
+     irc-channels)
+
+;; Ops
+(irc-privmsg irc-conn "chanserv" "op")
+;; (format "op ~a schemebot" irc-primary-channel))
+
+;; CVS Restart
+(define do-cvs-restart exit)
+(define (cvs-restart)
+  (irc-unsecure irc-conn irc-secure-passwd)
+  (irc-disconnect irc-conn)
+  (do-cvs-restart))
+
+;; Enable Security
+(verbose 0)
+(define (exit) #f)
+(define (quit) #f)
+(irc-secure irc-conn irc-secure-passwd)
+
+;;
+;; Start the handler
+;;
+
+(display "Starting handler...\n")
+
+(irc-handler)
+
+;; Grab any finals errors
+(if (not (null? errobj))
+    (display (format "ERROR: ~a~%" errobj)))
+
+;; Done
+#t

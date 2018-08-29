@@ -1,0 +1,6 @@
+#!/bin/sh
+while [ 1 ]
+do
+git pull
+./schemebot >> ./schemebot.log
+done
